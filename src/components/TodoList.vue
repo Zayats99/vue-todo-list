@@ -4,7 +4,10 @@
       <input v-model="description" @keyup.enter="addItem" type="text" /><br />
       <button class="add" @click="addItem()">Add Item</button>
     </div>
-    <div class="item-container" v-for="todo of todos" :key="todo.id">
+    <div class="input-wrapper">
+      <input type="search" v-model="search">
+    </div>
+    <div class="item-container" v-for="todo, index of filteredData" :key="todo.id">
       <div class="todo-wrapper">
         <input type="checkbox" :checked="todo.isDone" @change="setDone(todo.id)">
         <div class="info-wrapper">
@@ -13,16 +16,17 @@
           </p>
           <div class="tags-wrapper">
             <div class="tag" v-for="tag, index of todo.tags" :key="index">{{ tag }}</div>
-            <button class="add" @click="openModal()">+</button>
+            <button class="add" @click="openModal(index)">+</button>
           </div>
         </div>
       </div>
       <button class="remove" @click="removeItem(todo.id)">remove</button>
     </div>
-    <Modal v-model:visible="isModalVisible" :okButton="{ text: 'save', onclick: null }">
-      <div>
-        <multiselect v-model="selected" :options="options">
-        </multiselect>
+    <Modal v-model:visible="isModalVisible" :okButton="{ text: 'save', onclick: saveTags }" title="Choose tags">
+      <div class="tags-wrapper">
+        <button class="option" :class="{ isActive: tags[index].active }" v-for="tag, index in tags" :key="index"
+          @click="toggleTag(index)">{{ tag.name
+          }}</button>
       </div>
     </Modal>
   </div>
@@ -31,22 +35,20 @@
 <script>
 import axios from "axios";
 import { Modal } from 'usemodal-vue3';
-import Multiselect from 'vue-multiselect';
 
 export default {
   name: 'TodoList',
   components: {
-    Multiselect,
     Modal,
   },
   data() {
     return {
       description: "", //todo description
+      search: "", //todo description
       todos: [],
+      tags: [{ name: 'tag1', active: false }, { name: 'tag2', active: false }, { name: 'tag3', active: false }],
       isModalVisible: false, // modal state
-      tags: [], // todo tags
-      selected: null,
-      options: ['list', 'of', 'options']
+      todoId: null
     };
   },
   async created() {
@@ -58,11 +60,21 @@ export default {
     }
   },
   computed: {
-    totalTodos() {
-      return this.todos.length; //auto increment of 1 of each items added into array
-    },
-    isComplete() {
-      return this.todos.filter(item => item.isDone).length; //to get done 
+    filteredData() {
+      return this.todos
+        .filter(
+          ({ description, tags }) => {
+            if (description.toLowerCase().includes(this.search)) {
+              return true;
+            }
+
+            if (tags.join('').toLowerCase().includes(this.search)) {
+              return true;
+            }
+
+            return false;
+          }
+        );
     }
   },
 
@@ -80,6 +92,19 @@ export default {
         return item;
       });
     },
+    async saveTags() {
+      await axios.patch(`http://localhost:3000/todos/${this.todoId}`, {
+        tags: this.tags.filter(tag => tag.active).map(tag => tag.name),
+      });
+      this.todos.map((item) => {
+        if (item.id === this.todoId) {
+          item.tags = this.tags.filter(tag => tag.active).map(tag => tag.name);
+        }
+        return item;
+      });
+
+      this.closeModal();
+    },
     removeItem(id) {
       axios.delete(`http://localhost:3000/todos/${id}`);
       this.todos = this.todos.filter((item) => item.id !== id);
@@ -92,21 +117,26 @@ export default {
       this.todos = [...this.todos, res.data];
       this.description = "";
     },
-    openModal() {
+    openModal(index) {
+      const selectedTodo = this.todos[index];
       this.isModalVisible = true
+      this.todoId = selectedTodo.id;
+
+      this.tags = this.tags.map(({ name }) => ({
+        name,
+        active: selectedTodo.tags.includes(name) ?? false,
+      }));
     },
-    async setTags(id) {
-      const res = await axios.post(`http://localhost:3000/todos/${id}`, {
-        tags: this.tags,
-      });
-      this.todos.find((item) => item.id === id).tags = [...this.todos, res.data];
-      this.tags = [];
+    closeModal() {
+      this.isModalVisible = false
+      this.todoId = null
     },
+    toggleTag(index) {
+      this.tags[index].active = !this.tags[index].active;
+    }
   },
 }
 </script>
-
-<style src="vue-multiselect/dist/vue-multiselect.min.css"></style>
 
 <!-- Add "scoped" attribute to limit CSS to this component only -->
 <style scoped>
@@ -189,5 +219,11 @@ button {
   border: 1px solid black;
   border-radius: 5px;
   background-color: lightslategray;
+
+}
+
+.option.isActive {
+  background-color: green;
+  color: white;
 }
 </style>
